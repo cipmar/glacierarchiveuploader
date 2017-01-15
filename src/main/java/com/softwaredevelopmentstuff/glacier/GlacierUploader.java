@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.BiConsumer;
 import java.util.logging.Logger;
 
 import static java.util.logging.Level.INFO;
@@ -59,9 +60,37 @@ class GlacierUploader {
 
     private String uploadParts(String uploadId, UploadParams uploadParams) throws IOException {
         List<byte[]> checksumList = new LinkedList<>();
-        long fileSize = new File(uploadParams.filePath).length();
+        File file = new File(uploadParams.filePath);
 
-        try (FileInputStream fis = new FileInputStream(uploadParams.filePath)) {
+        readFile(file, (chunkRead, currentFilePos) -> {
+            // checksum
+            String checksum = TreeHashGenerator.calculateTreeHash(new ByteArrayInputStream(chunkRead));
+            checksumList.add(BinaryUtils.fromHex(checksum));
+
+            // range
+            String contentRange = String.format("bytes %s-%s/*", currentFilePos, currentFilePos + chunkRead.length - 1);
+            double progress = Math.round((currentFilePos * 100.0) / file.length() * 100.0) / 100.0;
+            LOG.log(INFO, "Uploading {0}, progress {1}%", new Object[]{contentRange, progress});
+
+            // upload
+            UploadMultipartPartRequest request = new UploadMultipartPartRequest()
+                    .withVaultName(uploadParams.vaultName)
+                    .withBody(new ByteArrayInputStream(chunkRead))
+                    .withChecksum(checksum)
+                    .withRange(contentRange)
+                    .withUploadId(uploadId);
+
+            client.uploadMultipartPart(request);
+        });
+
+        String checksum = TreeHashGenerator.calculateTreeHash(checksumList);
+        LOG.log(INFO, "Parts uploaded, tree hash checksum: {0}. ", checksum);
+
+        return checksum;
+    }
+
+    private void readFile(File file, BiConsumer<byte[], Long> chunkProcessor) throws IOException {
+        try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[Integer.valueOf(PART_SIZE)];
 
             long currentFilePos = 0;
@@ -69,34 +98,10 @@ class GlacierUploader {
 
             while ((read = fis.read(buffer, 0, buffer.length)) > -1) {
                 byte[] bytesRead = Arrays.copyOf(buffer, read);
-
-                // checksum
-                String checksum = TreeHashGenerator.calculateTreeHash(new ByteArrayInputStream(bytesRead));
-                checksumList.add(BinaryUtils.fromHex(checksum));
-
-                // range
-                String contentRange = String.format("bytes %s-%s/*", currentFilePos, currentFilePos + read - 1);
-                double progress = Math.round((currentFilePos * 100.0) / fileSize * 100.0) / 100.0;
-                LOG.log(INFO, "Uploading {0}, progress {1}%", new Object[]{contentRange, progress});
-
-                // upload
-                UploadMultipartPartRequest request = new UploadMultipartPartRequest()
-                        .withVaultName(uploadParams.vaultName)
-                        .withBody(new ByteArrayInputStream(bytesRead))
-                        .withChecksum(checksum)
-                        .withRange(contentRange)
-                        .withUploadId(uploadId);
-
-                client.uploadMultipartPart(request);
-
+                chunkProcessor.accept(bytesRead, currentFilePos);
                 currentFilePos += read;
             }
         }
-
-        String checksum = TreeHashGenerator.calculateTreeHash(checksumList);
-        LOG.log(INFO, "Parts uploaded, tree hash checksum: {0}. ", checksum);
-
-        return checksum;
     }
 
     private String completeUpload(String uploadId, String checksum, UploadParams uploadParams) {
