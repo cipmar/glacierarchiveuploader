@@ -89,7 +89,7 @@ class GlacierUploader {
         return checksum;
     }
 
-    private void readFile(File file, BiConsumer<byte[], Long> chunkProcessor) throws IOException {
+    private void readFile(File file, BiConsumer<byte[], Long> chunkConsumer) throws IOException {
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[Integer.valueOf(PART_SIZE)];
 
@@ -98,7 +98,7 @@ class GlacierUploader {
 
             while ((read = fis.read(buffer, 0, buffer.length)) > -1) {
                 byte[] bytesRead = Arrays.copyOf(buffer, read);
-                chunkProcessor.accept(bytesRead, currentFilePos);
+                chunkConsumer.accept(bytesRead, currentFilePos);
                 currentFilePos += read;
             }
         }
