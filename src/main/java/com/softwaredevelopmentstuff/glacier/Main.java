@@ -1,8 +1,8 @@
+package com.softwaredevelopmentstuff.glacier;
+
 import org.apache.commons.cli.*;
 
 import java.util.logging.Logger;
-
-import static java.util.logging.Level.WARNING;
 
 public class Main {
     private static final Logger LOG = Logger.getLogger("GlacierArchiveUpload");
@@ -21,7 +21,7 @@ public class Main {
                     cmd.getOptionValue("description")));
         } catch (ParseException e) {
             System.err.println(e.getMessage());
-            new HelpFormatter().printHelp("glacierarchiveuploader", options);
+            new HelpFormatter().printHelp("java -jar glacierarchieupload.jar", options);
             System.exit(1);
         }
     }
